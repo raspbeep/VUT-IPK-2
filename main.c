@@ -5,7 +5,8 @@
 #include <netinet/udp.h>
 #include <netinet/tcp.h>
 #include <netinet/ip.h>
-#include<netinet/if_ether.h>
+#include <netinet/if_ether.h>
+#include <netinet/ether.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -17,12 +18,10 @@
 #include <signal.h>
 #include <ctype.h>
 #include <sys/types.h>
+#include <time.h>
 
 
 #include "errno.h"
-
-#define IP_HL(ip)               (((ip)->ip_vhl) & 0x0f)
-#define TH_OFF(th)      (((th)->th_offx2 & 0xf0) >> 4)
 
 #define BUFF_SIZE 65536
 #define NAME_SIZE 256
@@ -45,34 +44,6 @@ int header_size;
 
 void print_interfaces();
 void print_help();
-
-/* IP header */
-struct sniff_ip {
-    u_char  ip_vhl;                 /* version << 4 | header length >> 2 */
-    u_char  ip_tos;                 /* type of service */
-    u_short ip_len;                 /* total length */
-    u_short ip_id;                  /* identification */
-    u_short ip_off;                 /* fragment offset field */
-    u_char  ip_ttl;                 /* time to live */
-    u_char  ip_p;                   /* protocol */
-    u_short ip_sum;                 /* checksum */
-    struct  in_addr ip_src,ip_dst;  /* source and dest address */
-};
-#define IP_HL(ip)               (((ip)->ip_vhl) & 0x0f)
-#define IP_V(ip)                (((ip)->ip_vhl) >> 4)
-
-struct sniff_tcp {
-    u_short th_sport;               /* source port */
-    u_short th_dport;               /* destination port */
-    tcp_seq th_seq;                 /* sequence number */
-    tcp_seq th_ack;                 /* acknowledgement number */
-    u_char  th_offx2;               /* data offset, rsvd */
-#define TH_OFF(th)      (((th)->th_offx2 & 0xf0) >> 4)
-    u_char  th_flags;
-    u_short th_win;                 /* window */
-    u_short th_sum;                 /* checksum */
-    u_short th_urp;                 /* urgent pointer */
-};
 
 // prints error message
 // returns param err_n
@@ -152,9 +123,9 @@ bool verify_interface(char *name) {
     if (if_ni == NULL) {
         printf("Cannot verify network interface. No network interfaces were found.\n");
     } else {
-        printf("Choose a network interface: \n");
         for (i = if_ni; ! (i->if_index == 0 && i->if_name == NULL); i++) {
             if (!strcmp(i->if_name, name)) {
+                printf("[ OK ] Found interface: %s", name);
                 found = true;
                 // cannot return, need to deallocate first
             }
@@ -229,8 +200,8 @@ int process_arguments(int argc, char *argv[]) {
     return 0;
 }
 
-int process_packet(unsigned char *buffer, ssize_t data_size) {
-}
+//int process_packet(unsigned char *buffer, ssize_t data_size) {
+//}
 
 // TODO: terminating function for signals
 //void stop_capture(int signo)
@@ -318,6 +289,23 @@ print_hex_ascii_line(const u_char *payload, int len, int offset)
     printf("\n");
 }
 
+
+void print_ether_info(struct ether_header *eth_header, uint16_t *eth_type) {
+    struct ether_addr eth_dst, eth_src;
+
+    // find ethernet destination and source address
+    memcpy(&eth_dst, eth_header->ether_dhost, sizeof(eth_dst));
+    memcpy(&eth_src, eth_header->ether_shost, sizeof(eth_src));
+
+    char *address = ether_ntoa(&eth_dst);
+    printf("Ether destination: %s\n", address);
+    address = ether_ntoa(&eth_src);
+    printf("Ether source: %s\n", address);
+
+    *eth_type = htons(eth_header->ether_type);
+}
+
+
 void
 print_payload(const u_char *payload, int len)
 {
@@ -359,31 +347,75 @@ print_payload(const u_char *payload, int len)
 }
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
-    const struct sniff_ethernet *ethernet; /* The ethernet header */
-    const struct iphdr *ip; /* The IP header */
-    const struct tcphdr *tcp; /* The TCP header */
-    const char *payload; /* Packet payload */
+    struct ether_header *eth_header;
+    uint16_t eth_type;
 
-    u_int size_ip;
-    u_int size_tcp;
+    printf("*** NEW PACKET ***\n");
 
-    ethernet = (struct sniff_ethernet*)(packet);
-    ip = (struct iphdr*)(packet + SIZE_ETHERNET);
-    size_ip = (ip->ihl & 0x0f) * 4;
-    if (size_ip < 20) {
-        printf("   * Invalid IP header length: %u bytes\n", size_ip);
-        return;
+    char *time = ctime(&header->ts.tv_sec);
+
+    printf("At time: %s", time);
+
+    // define ethernet header
+    eth_header = (struct ether_header*)(packet);
+
+    // print source, destination and get ether type
+    print_ether_info(eth_header, &eth_type);
+
+    switch (eth_type) {
+        case ETH_P_IP:
+            printf("Ethernet type: IPv4\n");
+            break;
+        case ETH_P_IPV6:
+            printf("Ethernet type: IPv6\n");
+            break;
+        case ETH_P_ARP:
+            printf("Ethernet type: ARP\n");
+            break;
+        default:
+            printf("Ethernet type: unknown\n");
+            break;
     }
-    tcp = (struct tcphdr*)(packet + SIZE_ETHERNET + size_ip);
-    size_tcp = (tcp->th_off & 0xf0) >> 4;
-    if (size_tcp < 20) {
-        printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
-        return;
-    }
-    payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
-    int size_payload = ntohs(ip->tot_len) - (size_ip + size_tcp);
-    printf("############################################\n");
-    print_payload(payload, size_payload);
+
+
+    printf("*** *** *** *** ***\n\n\n");
+
+    // struct iphdr *ip_header;
+    //ip_header = (struct iphdr*)(packet + SIZE_ETHERNET);
+
+
+
+
+
+
+
+//    static int count = 1;                   /* packet counter */
+//
+//    /* declare pointers to packet headers */
+//    const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
+//    const struct sniff_ip *ip;              /* The IP header */
+//    const struct sniff_tcp *tcp;            /* The TCP header */
+//    const char *payload;                    /* Packet payload */
+//
+//    int size_ip;
+//    int size_tcp;
+//    int size_payload;
+//
+//    printf("\nPacket number %d:\n", count);
+//    count++;
+//
+//    /* define ethernet header */
+//    ethernet = (struct sniff_ethernet*)(packet);
+//
+//    /* define/compute ip header offset */
+//    ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
+//    size_ip = IP_HL(ip)*4;
+//    if (size_ip < 20) {
+//        printf("   * Invalid IP header length: %u bytes\n", size_ip);
+//        return;
+//    }
+
+
 
 }
 
