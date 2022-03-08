@@ -346,8 +346,37 @@ print_payload(const u_char *payload, int len)
     }
 }
 
+
+void print_ipv4_packet(const u_char *packet) {
+    struct iphdr *ip_header;
+    uint8_t protocol;
+
+    ip_header = (struct iphdr*)(packet + SIZE_ETHERNET);
+    // TODO: check header length
+
+    protocol = ip_header->protocol;
+
+    switch (protocol) {
+        case IPPROTO_TCP:
+            printf("IP protocol: TCP\n");
+            break;
+        case IPPROTO_UDP:
+            printf("IP protocol: UDP\n");
+            break;
+        case IPPROTO_ICMP:
+            printf("IP protocol: ICMP\n");
+            break;
+        default:
+            printf("IP protocol: unknown\n");
+            break;
+    }
+}
+
+
+
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
     struct ether_header *eth_header;
+    struct iphdr *ip_header;
     uint16_t eth_type;
 
     printf("*** NEW PACKET ***\n");
@@ -365,6 +394,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
     switch (eth_type) {
         case ETH_P_IP:
             printf("Ethernet type: IPv4\n");
+            print_ipv4_packet(packet);
             break;
         case ETH_P_IPV6:
             printf("Ethernet type: IPv6\n");
@@ -377,15 +407,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
             break;
     }
 
-
     printf("*** *** *** *** ***\n\n\n");
-
-    // struct iphdr *ip_header;
-    //ip_header = (struct iphdr*)(packet + SIZE_ETHERNET);
-
-
-
-
 
 
 
