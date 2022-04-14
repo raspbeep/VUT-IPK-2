@@ -22,6 +22,7 @@
 
 
 #include "errno.h"
+#include "dynamic_string.c"
 
 #define BUFF_SIZE 65536
 #define NAME_SIZE 256
@@ -312,9 +313,6 @@ void print_payload(const u_char *payload, int len_payload)
         return;
     }
 
-    // -5 to skip Version and Length fields
-    //len_payload -= 5;
-
     number_of_full_lines = len_payload / bytes_per_line;
     total_number_of_lines = number_of_full_lines;
     remainder = len_payload % bytes_per_line;
@@ -378,48 +376,52 @@ void print_ipv4_udp_packet(const u_char *packet, const uint16_t ip_total_length,
 }
 
 void print_ipv4_icmp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
-    struct icmphdr *icmp_header;
-    const u_char *payload;
-    const uint8_t icmp_header_length = 8;
+//    struct icmphdr *icmp_header;
+//    const u_char *payload;
+//    const uint8_t icmp_header_length = 8;
+//
+//    printf("IP header length: %d\n", ip_header_length);
+//    printf("IP total length: %d\n", ip_total_length);
+//
+//    udp_header = (struct udphdr*)(packet + SIZE_ETH_H + ip_header_length);
+//
+//    printf("Source port: %hu\n", ntohs(udp_header->uh_sport));
+//    printf("Destination port: %hu\n", ntohs(udp_header->uh_dport));
+//
+//    uint16_t size_payload = ntohs(udp_header->uh_ulen) - tcp_header_length;
+//    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
+//    printf("Payload size: %d\n", size_payload);
+//
+//    print_payload(payload, size_payload);
 
-    printf("IP header length: %d\n", ip_header_length);
-    printf("IP total length: %d\n", ip_total_length);
-
-    udp_header = (struct udphdr*)(packet + SIZE_ETH_H + ip_header_length);
-
-    printf("Source port: %hu\n", ntohs(udp_header->uh_sport));
-    printf("Destination port: %hu\n", ntohs(udp_header->uh_dport));
-
-    uint16_t size_payload = ntohs(udp_header->uh_ulen) - tcp_header_length;
-    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
-    printf("Payload size: %d\n", size_payload);
-
-    print_payload(payload, size_payload);
+    printf("ipv4 icmp\n");
 }
 
 void print_ipv4_arp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
-    struct arphdr *arp_header;
-    const u_char *payload;
-    uint8_t tcp_header_length;
+//    struct arphdr *arp_header;
+//    const u_char *payload;
+//    uint8_t tcp_header_length;
+//
+//    printf("IP header length: %d\n", ip_header_length);
+//    printf("IP total length: %d\n", ip_total_length);
+//
+//
+//    arp_header = (struct arphdr*)(packet + SIZE_ETH_H + ip_header_length);
+//
+//    printf("Source port: %hu\n", ntohs(arp_header->));
+//    printf("Destination port: %hu\n", ntohs(arp_header));
+//
+//    tcp_header_length = tcp_header->th_off;
+//    tcp_header_length *= 4;
+//    printf("TCP header length: %d\n", tcp_header_length);
+//
+//    uint16_t size_payload = ip_total_length - (ip_header_length + tcp_header_length);
+//    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
+//    printf("Payload size: %d\n", size_payload);
+//
+//    print_payload(payload, size_payload);
 
-    printf("IP header length: %d\n", ip_header_length);
-    printf("IP total length: %d\n", ip_total_length);
-
-
-    arp_header = (struct arphdr*)(packet + SIZE_ETH_H + ip_header_length);
-
-    printf("Source port: %hu\n", ntohs(arp_header->));
-    printf("Destination port: %hu\n", ntohs(arp_header));
-
-    tcp_header_length = tcp_header->th_off;
-    tcp_header_length *= 4;
-    printf("TCP header length: %d\n", tcp_header_length);
-
-    uint16_t size_payload = ip_total_length - (ip_header_length + tcp_header_length);
-    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
-    printf("Payload size: %d\n", size_payload);
-
-    print_payload(payload, size_payload);
+    printf("ipv4 arp\n");
 }
 
 void print_ipv4_packet(const u_char *packet) {
@@ -548,6 +550,11 @@ int main(int argc, char *argv[]) {
         // TODO: unsupported data link type?
         return -1;
     }
+
+    string_t str;
+    str_create_empty(&str);
+
+
 
     pcap_loop(handle, packet_n, got_packet, NULL);
 
