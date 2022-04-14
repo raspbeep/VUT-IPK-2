@@ -26,12 +26,14 @@
 #define BUFF_SIZE 65536
 #define NAME_SIZE 256
 #define PROMISCUOUS 1
-#define SIZE_ETHERNET 14
+#define SIZE_ETH_H 14
 #define SIZE_LOOP_BACK 4
 
 int port_n;
 int packet_n = 10;
 char interface_name[NAME_SIZE];
+
+char filter_string[BUFF_SIZE] = {0};
 
 bool if_flag = false;
 bool tcp_flag = false;
@@ -236,59 +238,50 @@ int get_dl_header_size() {
         case DLT_NULL:
             return SIZE_LOOP_BACK;
         case DLT_EN10MB:
-            return SIZE_ETHERNET;
+            return SIZE_ETH_H;
         default:
             printf("Unsupported data-link type.\n");
             return -1;
     }
 }
 
-void
-print_hex_ascii_line(const u_char *payload, int len, int offset)
+void print_hex_part(const u_char *payload, int len, int offset)
 {
+    // offset:  16 bytes next to each other; same 16 bytes but only printable
+    // 0x0000:  00 19 d1 f7 be e5 00 04  96 1d 34 20 08 00 45 00  ........ ..4 ..
+    const unsigned char *char_ptr;
+    printf("0x%04x\t ", offset);
 
-    int i;
-    int gap;
-    const u_char *ch;
-
-    /* offset */
-    printf("%05d   ", offset);
-
-    /* hex */
-    ch = payload;
-    for(i = 0; i < len; i++) {
-        printf("%02x ", *ch);
-        ch++;
-        /* print extra space after 8th byte for visual aid */
-        if (i == 7)
-            printf(" ");
+    for (int i = 0; i < len; i++) {
+        // +5 to skip Version and Length fields
+        char_ptr = (payload + offset + i);
+        printf("%02x ", *char_ptr);
+        if (i == 7) printf("  ");
     }
-    /* print space to handle line less than 8 bytes */
-    if (len < 8)
-        printf(" ");
 
-    /* fill hex gap with spaces if not full line */
+    // fill gap if line is not complete
     if (len < 16) {
-        gap = 16 - len;
-        for (i = 0; i < gap; i++) {
+        for (int i = 0; i < 16 - len; i++) {
             printf("   ");
         }
     }
-    printf("   ");
 
-    /* ascii (if printable) */
-    ch = payload;
-    for(i = 0; i < len; i++) {
-        if (isprint(*ch))
-            printf("%c", *ch);
-        else
+    printf("\t");
+
+    for (int i = 0; i < len; i++) {
+        // +5 to skip Version and Length fields
+        char_ptr = (payload + offset + i);
+        if (isprint(*char_ptr)) {
+            printf("%c", *char_ptr);
+        } else {
             printf(".");
-        ch++;
+        }
+
+        if (i == 7) printf("  ");
     }
 
     printf("\n");
 }
-
 
 void print_ether_info(struct ether_header *eth_header, uint16_t *eth_type) {
     struct ether_addr eth_dst, eth_src;
@@ -305,74 +298,198 @@ void print_ether_info(struct ether_header *eth_header, uint16_t *eth_type) {
     *eth_type = htons(eth_header->ether_type);
 }
 
-
-void
-print_payload(const u_char *payload, int len)
+void print_payload(const u_char *payload, int len_payload)
 {
+    int bytes_per_line = 16;
+    int offset;
 
-    int len_rem = len;
-    int line_width = 16;			/* number of bytes per line */
-    int line_len;
-    int offset = 0;					/* zero-based offset counter */
-    const u_char *ch = payload;
+    int number_of_full_lines;
+    int total_number_of_lines;
+    int remainder;
 
-    if (len <= 0)
-        return;
-
-    /* data fits on one line */
-    if (len <= line_width) {
-        print_hex_ascii_line(ch, len, offset);
+    // empty payload check
+    if (len_payload <= 0) {
         return;
     }
 
-    /* data spans multiple lines */
-    for ( ;; ) {
-        /* compute current line length */
-        line_len = line_width % len_rem;
-        /* print line */
-        print_hex_ascii_line(ch, line_len, offset);
-        /* compute total remaining */
-        len_rem = len_rem - line_len;
-        /* shift pointer to remaining bytes to print */
-        ch = ch + line_len;
-        /* add offset */
-        offset = offset + line_width;
-        /* check if we have line width chars or less */
-        if (len_rem <= line_width) {
-            /* print last line and get out */
-            print_hex_ascii_line(ch, len_rem, offset);
-            break;
+    // -5 to skip Version and Length fields
+    //len_payload -= 5;
+
+    number_of_full_lines = len_payload / bytes_per_line;
+    total_number_of_lines = number_of_full_lines;
+    remainder = len_payload % bytes_per_line;
+
+    if (remainder) total_number_of_lines++;
+
+    for (int line = 0; line < total_number_of_lines; line++) {
+        offset = line * bytes_per_line;
+        if (line == number_of_full_lines && remainder) {
+            print_hex_part(payload, remainder, offset);
+        } else {
+            print_hex_part(payload, bytes_per_line, offset);
         }
+
     }
 }
 
+void print_ipv4_tcp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
+    struct tcphdr *tcp_header;
+    const u_char *payload;
+    uint8_t tcp_header_length;
+
+    printf("IP header length: %d\n", ip_header_length);
+    printf("IP total length: %d\n", ip_total_length);
+
+
+    tcp_header = (struct tcphdr*)(packet + SIZE_ETH_H + ip_header_length);
+
+    printf("Source port: %hu\n", ntohs(tcp_header->th_sport));
+    printf("Destination port: %hu\n", ntohs(tcp_header->th_dport));
+
+    tcp_header_length = tcp_header->th_off;
+    tcp_header_length *= 4;
+    printf("TCP header length: %d\n", tcp_header_length);
+
+    uint16_t size_payload = ip_total_length - (ip_header_length + tcp_header_length);
+    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
+    printf("Payload size: %d\n", size_payload);
+
+    print_payload(payload, size_payload);
+}
+
+void print_ipv4_udp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
+    struct udphdr *udp_header;
+    const u_char *payload;
+    const uint8_t tcp_header_length = 8;
+
+    printf("IP header length: %d\n", ip_header_length);
+    printf("IP total length: %d\n", ip_total_length);
+
+    udp_header = (struct udphdr*)(packet + SIZE_ETH_H + ip_header_length);
+
+    printf("Source port: %hu\n", ntohs(udp_header->uh_sport));
+    printf("Destination port: %hu\n", ntohs(udp_header->uh_dport));
+
+    uint16_t size_payload = ntohs(udp_header->uh_ulen) - tcp_header_length;
+    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
+    printf("Payload size: %d\n", size_payload);
+
+    print_payload(payload, size_payload);
+}
+
+void print_ipv4_icmp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
+    struct icmphdr *icmp_header;
+    const u_char *payload;
+    const uint8_t icmp_header_length = 8;
+
+    printf("IP header length: %d\n", ip_header_length);
+    printf("IP total length: %d\n", ip_total_length);
+
+    udp_header = (struct udphdr*)(packet + SIZE_ETH_H + ip_header_length);
+
+    printf("Source port: %hu\n", ntohs(udp_header->uh_sport));
+    printf("Destination port: %hu\n", ntohs(udp_header->uh_dport));
+
+    uint16_t size_payload = ntohs(udp_header->uh_ulen) - tcp_header_length;
+    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
+    printf("Payload size: %d\n", size_payload);
+
+    print_payload(payload, size_payload);
+}
+
+void print_ipv4_arp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
+    struct arphdr *arp_header;
+    const u_char *payload;
+    uint8_t tcp_header_length;
+
+    printf("IP header length: %d\n", ip_header_length);
+    printf("IP total length: %d\n", ip_total_length);
+
+
+    arp_header = (struct arphdr*)(packet + SIZE_ETH_H + ip_header_length);
+
+    printf("Source port: %hu\n", ntohs(arp_header->));
+    printf("Destination port: %hu\n", ntohs(arp_header));
+
+    tcp_header_length = tcp_header->th_off;
+    tcp_header_length *= 4;
+    printf("TCP header length: %d\n", tcp_header_length);
+
+    uint16_t size_payload = ip_total_length - (ip_header_length + tcp_header_length);
+    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
+    printf("Payload size: %d\n", size_payload);
+
+    print_payload(payload, size_payload);
+}
 
 void print_ipv4_packet(const u_char *packet) {
     struct iphdr *ip_header;
+    uint8_t ip_protocol;
+    unsigned int ip_header_length;
+    uint16_t ip_total_length;
+
+    ip_header = (struct iphdr*)(packet + SIZE_ETH_H);
+    // TODO: check header length
+
+    ip_protocol = ip_header->protocol;
+
+    // multiplying by 4, ihl is 4 bit field indicating the number of 4 byte blocks
+    ip_header_length = ip_header->ihl;
+//    if (ip_header_length < 5) {
+//        // TODO: should be at least 5
+//        // https://learningnetwork.cisco.com/s/question/0D53i00000Kt7fqCAB/what-is-ihl-filed-in-ipv4
+//    }
+    ip_header_length *= 4;
+
+    ip_total_length = ntohs(ip_header->tot_len);
+
+
+    printf("Source ip: %s\n", inet_ntoa(*(struct in_addr *)&ip_header->saddr));
+    printf("Destination ip: %s\n", inet_ntoa(*(struct in_addr *)&ip_header->daddr));
+
+    switch (ip_protocol) {
+        case IPPROTO_TCP:
+            printf("IPv4 protocol: TCP\n");
+            print_ipv4_tcp_packet(packet, ip_total_length, ip_header_length);
+            break;
+        case IPPROTO_UDP:
+            printf("IPv4 protocol: UDP\n");
+            print_ipv4_udp_packet(packet, ip_total_length, ip_header_length);
+            break;
+        case IPPROTO_ICMP:
+            printf("IPv4 protocol: ICMP\n");
+            print_ipv4_icmp_packet(packet, ip_total_length, ip_header_length);
+            break;
+        default:
+            printf("IPv4 protocol: unknown\n");
+            break;
+    }
+}
+
+void print_ipv6_packet(const u_char *packet) {
+    struct iphdr *ip_header;
     uint8_t protocol;
 
-    ip_header = (struct iphdr*)(packet + SIZE_ETHERNET);
+    ip_header = (struct iphdr*)(packet + SIZE_ETH_H);
     // TODO: check header length
 
     protocol = ip_header->protocol;
 
     switch (protocol) {
         case IPPROTO_TCP:
-            printf("IP protocol: TCP\n");
+            printf("IPv6 protocol: TCP\n");
             break;
         case IPPROTO_UDP:
-            printf("IP protocol: UDP\n");
+            printf("IPv6 protocol: UDP\n");
             break;
-        case IPPROTO_ICMP:
-            printf("IP protocol: ICMP\n");
+        case IPPROTO_ICMPV6:
+            printf("IPv6 protocol: ICMPv6\n");
             break;
         default:
-            printf("IP protocol: unknown\n");
+            printf("IPv6 protocol: unknown\n");
             break;
     }
 }
-
-
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
     struct ether_header *eth_header;
@@ -406,41 +523,8 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
             printf("Ethernet type: unknown\n");
             break;
     }
-
     printf("*** *** *** *** ***\n\n\n");
-
-
-
-//    static int count = 1;                   /* packet counter */
-//
-//    /* declare pointers to packet headers */
-//    const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
-//    const struct sniff_ip *ip;              /* The IP header */
-//    const struct sniff_tcp *tcp;            /* The TCP header */
-//    const char *payload;                    /* Packet payload */
-//
-//    int size_ip;
-//    int size_tcp;
-//    int size_payload;
-//
-//    printf("\nPacket number %d:\n", count);
-//    count++;
-//
-//    /* define ethernet header */
-//    ethernet = (struct sniff_ethernet*)(packet);
-//
-//    /* define/compute ip header offset */
-//    ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
-//    size_ip = IP_HL(ip)*4;
-//    if (size_ip < 20) {
-//        printf("   * Invalid IP header length: %u bytes\n", size_ip);
-//        return;
-//    }
-
-
-
 }
-
 
 int main(int argc, char *argv[]) {
     *interface_name = 0;
