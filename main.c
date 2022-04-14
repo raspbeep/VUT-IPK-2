@@ -20,30 +20,52 @@
 #include <sys/types.h>
 #include <time.h>
 
-
 #include "errno.h"
-#include "dynamic_string.c"
+#include "dynamic_string.h"
 
-#define BUFF_SIZE 65536
-#define NAME_SIZE 256
+// Sufficient for IPv4 and IPv6(except for Jumbogram header option) packets.
+// Total Length field is a 16-bit unsigned integer, which has a possible 65,536 values.
+#define LONG_BUFF_SIZE 65536
+#define SMALL_BUFF_SIZE 256
 #define PROMISCUOUS 1
+#define INF_LOOP 0
 #define SIZE_ETH_H 14
-#define SIZE_LOOP_BACK 4
+#define SIZE_LOOP_BACK_H 4
+
+char string_buffer[LONG_BUFF_SIZE] = {0};
+
+bool if_flag    = false;
+bool tcp_flag   = false;
+bool udp_flag   = false;
+bool arp_flag   = false;
+bool icmp_flag  = false;
+
+int return_code = 0;
 
 int port_n;
-int packet_n = 10;
-char interface_name[NAME_SIZE];
-
-char filter_string[BUFF_SIZE] = {0};
-
-bool if_flag = false;
-bool tcp_flag = false;
-bool udp_flag = false;
-bool arp_flag = false;
-bool icmp_flag = false;
+bool port_n_is_set = false;
+int packet_n = 1;
+char interface_name[SMALL_BUFF_SIZE];
 
 pcap_t *handle;
 int header_size;
+
+typedef struct packet_t{
+    unsigned long   frame_length;
+    unsigned long   payload_size;
+    unsigned long   dl_header_size;
+    string_t        protocol;
+    string_t        time_stamp;
+    string_t        eth_type;
+    string_t        mac_src;
+    string_t        mac_dst;
+    string_t        ip_src;
+    string_t        ip_dst;
+    string_t        port_src;
+    string_t        port_dst;
+} packet_t;
+
+struct packet_t packet_storage;
 
 void print_interfaces();
 void print_help();
@@ -77,6 +99,9 @@ int handle_error(const int err_n) {
         case ERR_DATA_LINK_HEADER:
             fprintf(stderr, "ERROR: Failed to get data link header size.\n");
             return ERR_DATA_LINK_HEADER;
+        case ERR_IP_HEADER_SIZE:
+            fprintf(stderr, "ERROR: Invalid IP frame header size(<5).\n");
+            return ERR_IP_HEADER_SIZE;
         case ERR_START:
             print_help();
             return ERR_START;
@@ -99,11 +124,24 @@ void print_interfaces() {
         printf("No network interfaces were found.\n");
     } else {
         printf("Choose a network interface: \n");
-        for (i = if_ni; ! (i->if_index == 0 && i->if_name == NULL); i++) {
+        for (i = if_ni; !(i->if_index == 0 && i->if_name == NULL); i++) {
             printf("%s\n", i->if_name);
         }
+        // free space allocated for names of interfaces
         if_freenameindex(if_ni);
     }
+}
+
+void reinit_packet_storage_struct() {
+    str_free(&packet_storage.time_stamp);
+    str_free(&packet_storage.protocol);
+    str_free(&packet_storage.mac_src);
+    str_free(&packet_storage.mac_dst);
+    str_free(&packet_storage.ip_src);
+    str_free(&packet_storage.ip_dst);
+    str_free(&packet_storage.port_src);
+    str_free(&packet_storage.port_dst);
+    packet_storage.frame_length = 0;
 }
 
 // verifies integer value
@@ -157,6 +195,7 @@ int process_arguments(int argc, char *argv[]) {
                     return handle_error(ERR_PORT_N);
                 }
                 port_n = result;
+                port_n_is_set = true;
                 arg_pos += 2;
             } else {
                 return handle_error(ERR_PORT_N);
@@ -197,9 +236,19 @@ int process_arguments(int argc, char *argv[]) {
                 return handle_error(ERR_PACKET_N);
             }
         } else {
+            // unknown argument
             return handle_error(ERR_ARGUMENT);
         }
     }
+
+    // if no specifying flag was set, print all packets
+    if (!tcp_flag && !udp_flag && !arp_flag && !icmp_flag) {
+        tcp_flag = true;
+        udp_flag = true;
+        arp_flag = true;
+        icmp_flag = true;
+    }
+
     return 0;
 }
 
@@ -222,14 +271,15 @@ int process_arguments(int argc, char *argv[]) {
 
 int init_pcap_handle() {
     char error_buffer[PCAP_ERRBUF_SIZE];
-    handle = pcap_open_live(interface_name, BUFF_SIZE, PROMISCUOUS, 1000, error_buffer);
+    // obtains a packet capture handle to look at packet on the network
+    handle = pcap_open_live(interface_name, LONG_BUFF_SIZE, PROMISCUOUS, 1000, error_buffer);
     if (handle == NULL) {
         return handle_error(ERR_SNIFF_OPEN);
     }
-    // TODO: add filtering option
     return 0;
 }
 
+// assigns link-layer header size according to the handle
 int get_dl_header_size() {
     int header_type = pcap_datalink(handle);
     if (header_type == PCAP_ERROR_NOT_ACTIVATED) {
@@ -237,8 +287,12 @@ int get_dl_header_size() {
     }
     switch (header_type) {
         case DLT_NULL:
-            return SIZE_LOOP_BACK;
+            packet_storage.frame_length += SIZE_LOOP_BACK_H;
+            packet_storage.dl_header_size = SIZE_LOOP_BACK_H;
+            return SIZE_LOOP_BACK_H;
         case DLT_EN10MB:
+            packet_storage.dl_header_size = SIZE_ETH_H;
+            packet_storage.frame_length += SIZE_ETH_H;
             return SIZE_ETH_H;
         default:
             printf("Unsupported data-link type.\n");
@@ -267,6 +321,7 @@ void print_hex_part(const u_char *payload, int len, int offset)
         }
     }
 
+    // tab space between hex and human-readable part
     printf("\t");
 
     for (int i = 0; i < len; i++) {
@@ -277,41 +332,35 @@ void print_hex_part(const u_char *payload, int len, int offset)
         } else {
             printf(".");
         }
-
         if (i == 7) printf("  ");
     }
-
     printf("\n");
 }
 
 void print_ether_info(struct ether_header *eth_header, uint16_t *eth_type) {
     struct ether_addr eth_dst, eth_src;
 
-    // find ethernet destination and source address
-    memcpy(&eth_dst, eth_header->ether_dhost, sizeof(eth_dst));
+    // find ethernet destination and source mac addresses
     memcpy(&eth_src, eth_header->ether_shost, sizeof(eth_src));
+    memcpy(&eth_dst, eth_header->ether_dhost, sizeof(eth_dst));
 
-    char *address = ether_ntoa(&eth_dst);
-    printf("Ether destination: %s\n", address);
-    address = ether_ntoa(&eth_src);
-    printf("Ether source: %s\n", address);
+    str_create(ether_ntoa(&eth_src), &packet_storage.mac_src);
+    str_create(ether_ntoa(&eth_dst), &packet_storage.mac_dst);
 
     *eth_type = htons(eth_header->ether_type);
 }
 
-void print_payload(const u_char *payload, int len_payload)
+string_t print_frame(const u_char *frame, int len_payload)
 {
+    string_t frame_string;
+    str_create_empty(&frame_string);
+
     int bytes_per_line = 16;
     int offset;
 
     int number_of_full_lines;
     int total_number_of_lines;
     int remainder;
-
-    // empty payload check
-    if (len_payload <= 0) {
-        return;
-    }
 
     number_of_full_lines = len_payload / bytes_per_line;
     total_number_of_lines = number_of_full_lines;
@@ -322,11 +371,10 @@ void print_payload(const u_char *payload, int len_payload)
     for (int line = 0; line < total_number_of_lines; line++) {
         offset = line * bytes_per_line;
         if (line == number_of_full_lines && remainder) {
-            print_hex_part(payload, remainder, offset);
+            print_hex_part(frame, remainder, offset);
         } else {
-            print_hex_part(payload, bytes_per_line, offset);
+            print_hex_part(frame, bytes_per_line, offset);
         }
-
     }
 }
 
@@ -335,24 +383,19 @@ void print_ipv4_tcp_packet(const u_char *packet, const uint16_t ip_total_length,
     const u_char *payload;
     uint8_t tcp_header_length;
 
-    printf("IP header length: %d\n", ip_header_length);
-    printf("IP total length: %d\n", ip_total_length);
-
-
     tcp_header = (struct tcphdr*)(packet + SIZE_ETH_H + ip_header_length);
 
-    printf("Source port: %hu\n", ntohs(tcp_header->th_sport));
-    printf("Destination port: %hu\n", ntohs(tcp_header->th_dport));
+    sprintf(string_buffer, "%hu", ntohs(tcp_header->th_sport));
+    str_create(string_buffer, &packet_storage.port_src);
+    sprintf(string_buffer, "%hu", ntohs(tcp_header->th_dport));
+    str_create(string_buffer, &packet_storage.port_dst);
 
     tcp_header_length = tcp_header->th_off;
     tcp_header_length *= 4;
-    printf("TCP header length: %d\n", tcp_header_length);
 
-    uint16_t size_payload = ip_total_length - (ip_header_length + tcp_header_length);
+    uint16_t payload_size = ip_total_length - (ip_header_length + tcp_header_length);
     payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
-    printf("Payload size: %d\n", size_payload);
-
-    print_payload(payload, size_payload);
+    packet_storage.payload_size = payload_size;
 }
 
 void print_ipv4_udp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
@@ -372,7 +415,7 @@ void print_ipv4_udp_packet(const u_char *packet, const uint16_t ip_total_length,
     payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
     printf("Payload size: %d\n", size_payload);
 
-    print_payload(payload, size_payload);
+    print_frame(payload, size_payload);
 }
 
 void print_ipv4_icmp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
@@ -392,7 +435,7 @@ void print_ipv4_icmp_packet(const u_char *packet, const uint16_t ip_total_length
 //    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
 //    printf("Payload size: %d\n", size_payload);
 //
-//    print_payload(payload, size_payload);
+//    print_frame(payload, size_payload);
 
     printf("ipv4 icmp\n");
 }
@@ -419,60 +462,64 @@ void print_ipv4_arp_packet(const u_char *packet, const uint16_t ip_total_length,
 //    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
 //    printf("Payload size: %d\n", size_payload);
 //
-//    print_payload(payload, size_payload);
+//    print_frame(payload, size_payload);
 
     printf("ipv4 arp\n");
 }
 
-void print_ipv4_packet(const u_char *packet) {
+int print_ipv4_packet(const u_char *packet) {
     struct iphdr *ip_header;
     uint8_t ip_protocol;
     unsigned int ip_header_length;
     uint16_t ip_total_length;
 
-    ip_header = (struct iphdr*)(packet + SIZE_ETH_H);
-    // TODO: check header length
-
+    ip_header = (struct iphdr*)(packet + packet_storage.dl_header_size);
     ip_protocol = ip_header->protocol;
 
     // multiplying by 4, ihl is 4 bit field indicating the number of 4 byte blocks
     ip_header_length = ip_header->ihl;
-//    if (ip_header_length < 5) {
-//        // TODO: should be at least 5
-//        // https://learningnetwork.cisco.com/s/question/0D53i00000Kt7fqCAB/what-is-ihl-filed-in-ipv4
-//    }
+    if (ip_header_length < 5) {
+        // should be at least 5
+        // https://learningnetwork.cisco.com/s/question/0D53i00000Kt7fqCAB/what-is-ihl-filed-in-ipv4
+        return ERR_IP_HEADER_SIZE;
+    }
     ip_header_length *= 4;
-
     ip_total_length = ntohs(ip_header->tot_len);
 
+    // now the length value is final for current packet
+    packet_storage.frame_length += ip_total_length;
 
-    printf("Source ip: %s\n", inet_ntoa(*(struct in_addr *)&ip_header->saddr));
-    printf("Destination ip: %s\n", inet_ntoa(*(struct in_addr *)&ip_header->daddr));
+    str_create(inet_ntoa(*(struct in_addr *)&ip_header->saddr), &packet_storage.ip_src);
+    str_create(inet_ntoa(*(struct in_addr *)&ip_header->daddr), &packet_storage.ip_dst);
 
     switch (ip_protocol) {
         case IPPROTO_TCP:
-            printf("IPv4 protocol: TCP\n");
+            str_create("TCP", &packet_storage.protocol);
             print_ipv4_tcp_packet(packet, ip_total_length, ip_header_length);
             break;
         case IPPROTO_UDP:
-            printf("IPv4 protocol: UDP\n");
+            str_create("UDP", &packet_storage.protocol);
             print_ipv4_udp_packet(packet, ip_total_length, ip_header_length);
             break;
         case IPPROTO_ICMP:
-            printf("IPv4 protocol: ICMP\n");
+            str_create("ICMP", &packet_storage.protocol);
             print_ipv4_icmp_packet(packet, ip_total_length, ip_header_length);
             break;
         default:
-            printf("IPv4 protocol: unknown\n");
+            str_create("unknown", &packet_storage.protocol);
             break;
     }
+
+
+
+    return 0;
 }
 
 void print_ipv6_packet(const u_char *packet) {
     struct iphdr *ip_header;
     uint8_t protocol;
 
-    ip_header = (struct iphdr*)(packet + SIZE_ETH_H);
+    ip_header = (struct iphdr*)(packet + packet_storage.dl_header_size);
     // TODO: check header length
 
     protocol = ip_header->protocol;
@@ -493,16 +540,22 @@ void print_ipv6_packet(const u_char *packet) {
     }
 }
 
+void get_time_from_pkthdr(const struct pcap_pkthdr *header) {
+    char time_string[40];
+    struct tm* broken_down_time = localtime(&header->ts.tv_sec);
+    strftime(time_string, sizeof (time_string), "%Y-%m-%d %H:%M:%S", broken_down_time);
+    long milliseconds = header->ts.tv_usec / 1000;
+    sprintf(string_buffer, "%s.%03ld\n", time_string, milliseconds);
+    str_create(string_buffer, &packet_storage.time_stamp);
+}
+
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
     struct ether_header *eth_header;
-    struct iphdr *ip_header;
     uint16_t eth_type;
 
     printf("*** NEW PACKET ***\n");
 
-    char *time = ctime(&header->ts.tv_sec);
-
-    printf("At time: %s", time);
+    get_time_from_pkthdr(header);
 
     // define ethernet header
     eth_header = (struct ether_header*)(packet);
@@ -512,20 +565,30 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 
     switch (eth_type) {
         case ETH_P_IP:
-            printf("Ethernet type: IPv4\n");
-            print_ipv4_packet(packet);
+            str_create("IPv4", &packet_storage.eth_type);
+            return_code = print_ipv4_packet(packet);
             break;
         case ETH_P_IPV6:
-            printf("Ethernet type: IPv6\n");
+            str_create("IPv6", &packet_storage.eth_type);
             break;
         case ETH_P_ARP:
-            printf("Ethernet type: ARP\n");
+            str_create("ARP", &packet_storage.eth_type);
             break;
         default:
-            printf("Ethernet type: unknown\n");
+            str_create("unknown", &packet_storage.eth_type);
             break;
     }
     printf("*** *** *** *** ***\n\n\n");
+
+    // break if we found given number of packets we were looking for
+    if (!packet_n || return_code) {
+        pcap_breakloop(handle);
+    }
+}
+
+void check_and_print_packet() {
+    bool passed = true;
+//    if ()
 }
 
 int main(int argc, char *argv[]) {
@@ -534,6 +597,9 @@ int main(int argc, char *argv[]) {
     if (result != 0) {
         return result;
     }
+
+    // TODO: do I need this?
+    // init_packet_storage_struct();
 
     // TODO: change the behaviour of signals
     // signal()
@@ -554,9 +620,8 @@ int main(int argc, char *argv[]) {
     string_t str;
     str_create_empty(&str);
 
-
-
-    pcap_loop(handle, packet_n, got_packet, NULL);
+    // when terminated by pcap_breakloop(), returns PCAP_ERROR_BREAK(-2)
+    pcap_loop(handle, INF_LOOP, got_packet, NULL);
 
     return 0;
 }

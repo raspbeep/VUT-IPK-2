@@ -5,7 +5,7 @@ TARGETS = Makefile errno.h hinfosvc.c Readme.md
 PACK = xkrato61
 
 all:
-	$(CC) $(EXEC).c -o $(EXEC) -lpcap -Wall -Wextra -pedantic -Werror
+	$(CC) $(EXEC).c -o $(EXEC) -lpcap -Wextra -pedantic -Werror
 
 pack:
 	zip $(PACK) $(TARGETS)

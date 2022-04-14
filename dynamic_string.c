@@ -1,17 +1,10 @@
-//
-// Created by pavel on 4/14/22.
-//
-
 #include "dynamic_string.h"
 #include "errno.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-
-
-int str_create_empty(string_t *str)
-{
+int str_create_empty(string_t *str) {
     // allocate initial space for string
     str->ptr = malloc(STRING_ALLOC_LENGTH);
     if(str->ptr == NULL) {
@@ -23,8 +16,7 @@ int str_create_empty(string_t *str)
     return E_OK;
 }
 
-int str_create(const char *s, string_t *str)
-{
+int str_create(const char *s, string_t *str) {
     // allocate space for string
     size_t length = strlen(s);
     str->ptr = malloc(length + 1);
@@ -37,8 +29,16 @@ int str_create(const char *s, string_t *str)
     return E_OK;
 }
 
-int str_append_char(string_t *str, char ch)
-{
+int str_append_string(string_t *str, char *s) {
+    for (int i = 0; i < strlen(s); i++) {
+        if (str_append_char(str,s[i])) {
+            return E_INT;
+        }
+    }
+    return E_OK;
+}
+
+int str_append_char(string_t *str, char ch) {
     // new_char + null byte = 2
     if(str->length + 2 > str->alloc_length) {
 
@@ -58,8 +58,7 @@ int str_append_char(string_t *str, char ch)
     return E_OK;
 }
 
-void str_free(string_t *str)
-{
+void str_free(string_t *str) {
     if(str->ptr) {
         free(str->ptr);
     }
