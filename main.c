@@ -34,7 +34,6 @@
 
 char string_buffer[LONG_BUFF_SIZE] = {0};
 
-bool if_flag    = false;
 bool tcp_flag   = false;
 bool udp_flag   = false;
 bool arp_flag   = false;
@@ -63,6 +62,7 @@ typedef struct packet_t{
     string_t        ip_dst;
     string_t        port_src;
     string_t        port_dst;
+    string_t        frame_content;
 } packet_t;
 
 struct packet_t packet_storage;
@@ -216,7 +216,6 @@ int process_arguments(int argc, char *argv[]) {
             if (arg_pos < argc - 1) {
                 if (verify_interface(argv[arg_pos + 1])) {
                     strcpy(interface_name, argv[arg_pos + 1]);
-                    if_flag = true;
                 } else {
                     return handle_error(ERR_INTERFACE);
                 }
@@ -252,9 +251,6 @@ int process_arguments(int argc, char *argv[]) {
     return 0;
 }
 
-//int process_packet(unsigned char *buffer, ssize_t data_size) {
-//}
-
 // TODO: terminating function for signals
 //void stop_capture(int signo)
 //{
@@ -269,9 +265,9 @@ int process_arguments(int argc, char *argv[]) {
 //    exit(0);
 //}
 
+// obtains a packet capture handle to look at packet on the network
 int init_pcap_handle() {
     char error_buffer[PCAP_ERRBUF_SIZE];
-    // obtains a packet capture handle to look at packet on the network
     handle = pcap_open_live(interface_name, LONG_BUFF_SIZE, PROMISCUOUS, 1000, error_buffer);
     if (handle == NULL) {
         return handle_error(ERR_SNIFF_OPEN);
@@ -305,36 +301,39 @@ void print_hex_part(const u_char *payload, int len, int offset)
     // offset:  16 bytes next to each other; same 16 bytes but only printable
     // 0x0000:  00 19 d1 f7 be e5 00 04  96 1d 34 20 08 00 45 00  ........ ..4 ..
     const unsigned char *char_ptr;
-    printf("0x%04x\t ", offset);
+    sprintf(string_buffer, "0x%04x\t ", offset);
+    str_append_string(&packet_storage.frame_content, string_buffer);
 
     for (int i = 0; i < len; i++) {
         // +5 to skip Version and Length fields
         char_ptr = (payload + offset + i);
-        printf("%02x ", *char_ptr);
-        if (i == 7) printf("  ");
+        sprintf(string_buffer, "%02x ", *char_ptr);
+        str_append_string(&packet_storage.frame_content, string_buffer);
+        if (i == 7) str_append_string(&packet_storage.frame_content, "  ");
     }
 
     // fill gap if line is not complete
     if (len < 16) {
         for (int i = 0; i < 16 - len; i++) {
-            printf("   ");
+            str_append_string(&packet_storage.frame_content, "   ");
         }
     }
 
     // tab space between hex and human-readable part
-    printf("\t");
+    str_append_string(&packet_storage.frame_content, "\t");
 
     for (int i = 0; i < len; i++) {
         // +5 to skip Version and Length fields
         char_ptr = (payload + offset + i);
         if (isprint(*char_ptr)) {
-            printf("%c", *char_ptr);
+            sprintf(string_buffer, "%c", *char_ptr);
+            str_append_string(&packet_storage.frame_content, string_buffer);
         } else {
-            printf(".");
+            str_append_string(&packet_storage.frame_content, ".");
         }
-        if (i == 7) printf("  ");
+        if (i == 7) str_append_string(&packet_storage.frame_content, "  ");
     }
-    printf("\n");
+    str_append_string(&packet_storage.frame_content, "\n");
 }
 
 void print_ether_info(struct ether_header *eth_header, uint16_t *eth_type) {
@@ -350,11 +349,7 @@ void print_ether_info(struct ether_header *eth_header, uint16_t *eth_type) {
     *eth_type = htons(eth_header->ether_type);
 }
 
-string_t print_frame(const u_char *frame, int len_payload)
-{
-    string_t frame_string;
-    str_create_empty(&frame_string);
-
+string_t print_frame(const u_char *frame, int len_payload) {
     int bytes_per_line = 16;
     int offset;
 
@@ -380,7 +375,6 @@ string_t print_frame(const u_char *frame, int len_payload)
 
 void print_ipv4_tcp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
     struct tcphdr *tcp_header;
-    const u_char *payload;
     uint8_t tcp_header_length;
 
     tcp_header = (struct tcphdr*)(packet + SIZE_ETH_H + ip_header_length);
@@ -394,28 +388,23 @@ void print_ipv4_tcp_packet(const u_char *packet, const uint16_t ip_total_length,
     tcp_header_length *= 4;
 
     uint16_t payload_size = ip_total_length - (ip_header_length + tcp_header_length);
-    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
     packet_storage.payload_size = payload_size;
 }
 
-void print_ipv4_udp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
+void print_ipv4_udp_packet(const u_char *packet, const unsigned int ip_header_length) {
     struct udphdr *udp_header;
-    const u_char *payload;
     const uint8_t tcp_header_length = 8;
-
-    printf("IP header length: %d\n", ip_header_length);
-    printf("IP total length: %d\n", ip_total_length);
 
     udp_header = (struct udphdr*)(packet + SIZE_ETH_H + ip_header_length);
 
-    printf("Source port: %hu\n", ntohs(udp_header->uh_sport));
-    printf("Destination port: %hu\n", ntohs(udp_header->uh_dport));
+    sprintf(string_buffer, "%hu\n", ntohs(udp_header->uh_sport));
+    str_create(string_buffer, &packet_storage.port_src);
+
+    printf(string_buffer, "%hu\n", ntohs(udp_header->uh_dport));
+    str_create(string_buffer, &packet_storage.port_dst);
 
     uint16_t size_payload = ntohs(udp_header->uh_ulen) - tcp_header_length;
-    payload = (u_char *)(packet + SIZE_ETH_H + ip_header_length + tcp_header_length);
-    printf("Payload size: %d\n", size_payload);
-
-    print_frame(payload, size_payload);
+    packet_storage.payload_size = size_payload;
 }
 
 void print_ipv4_icmp_packet(const u_char *packet, const uint16_t ip_total_length, const unsigned int ip_header_length) {
@@ -499,19 +488,16 @@ int print_ipv4_packet(const u_char *packet) {
             break;
         case IPPROTO_UDP:
             str_create("UDP", &packet_storage.protocol);
-            print_ipv4_udp_packet(packet, ip_total_length, ip_header_length);
+            print_ipv4_udp_packet(packet, ip_header_length);
             break;
         case IPPROTO_ICMP:
             str_create("ICMP", &packet_storage.protocol);
-            print_ipv4_icmp_packet(packet, ip_total_length, ip_header_length);
+            //print_ipv4_icmp_packet(packet, ip_total_length, ip_header_length);
             break;
         default:
             str_create("unknown", &packet_storage.protocol);
             break;
     }
-
-
-
     return 0;
 }
 
@@ -545,15 +531,46 @@ void get_time_from_pkthdr(const struct pcap_pkthdr *header) {
     struct tm* broken_down_time = localtime(&header->ts.tv_sec);
     strftime(time_string, sizeof (time_string), "%Y-%m-%d %H:%M:%S", broken_down_time);
     long milliseconds = header->ts.tv_usec / 1000;
-    sprintf(string_buffer, "%s.%03ld\n", time_string, milliseconds);
+    sprintf(string_buffer, "%s.%03ld", time_string, milliseconds);
     str_create(string_buffer, &packet_storage.time_stamp);
+}
+
+void print_packet() {
+    printf("*** NEW PACKET ***\n");
+    printf("src MAC:        %s\n", packet_storage.mac_src.ptr);
+    printf("dst MAC:        %s\n", packet_storage.mac_dst.ptr);
+    printf("frame length:   %lu\n", packet_storage.frame_length);
+    printf("src IP:         %s\n", packet_storage.ip_src.ptr);
+    printf("dst IP:         %s\n", packet_storage.ip_dst.ptr);
+    printf("src port:       %s\n", packet_storage.port_src.ptr);
+    printf("dst port:       %s\n", packet_storage.port_dst.ptr);
+    printf("payload size:   %lu\n", packet_storage.payload_size);
+
+    // TODO: print entire packet frame
+    printf("*** END OF PACKET ***\n\n\n");
+}
+
+void check_and_print_packet() {
+    bool passed = false;
+    // filter packets that are not supposed to be written out
+    string_t *protocol = &packet_storage.protocol;
+    if (!strcmp(protocol->ptr, "TCP") && tcp_flag) passed = true;
+    if (!strcmp(protocol->ptr, "UDP") && udp_flag) passed = true;
+    if (!strcmp(protocol->ptr, "ARP") && arp_flag) passed = true;
+    if (!strcmp(protocol->ptr, "ICMP") && icmp_flag) passed = true;
+
+    // packet did not pass
+    if (!passed) {
+        return;
+    }
+
+    packet_n--;
+    print_packet();
 }
 
 void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
     struct ether_header *eth_header;
     uint16_t eth_type;
-
-    printf("*** NEW PACKET ***\n");
 
     get_time_from_pkthdr(header);
 
@@ -578,17 +595,14 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
             str_create("unknown", &packet_storage.eth_type);
             break;
     }
-    printf("*** *** *** *** ***\n\n\n");
 
     // break if we found given number of packets we were looking for
-    if (!packet_n || return_code) {
+    if (packet_n == 0 || return_code) {
         pcap_breakloop(handle);
+        return;
     }
-}
 
-void check_and_print_packet() {
-    bool passed = true;
-//    if ()
+    check_and_print_packet();
 }
 
 int main(int argc, char *argv[]) {

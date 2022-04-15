@@ -42,6 +42,15 @@ int str_create(const char *s, string_t *str);
 int str_append_char(string_t *str, char ch);
 
 /**
+ * @brief Appends a string to the string object
+ *
+ * @param str string object to append the char to
+ * @param s string that gets appended
+ * @return E_INT on allocation error, else E_OK
+ */
+int str_append_string(string_t *str, char *s);
+
+/**
  * @brief Frees memory allocated by a string object
  *
  * @param str string to free
