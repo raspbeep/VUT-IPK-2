@@ -544,12 +544,20 @@ void print_ipv6_packet(const u_char *packet) {
 }
 
 void get_time_from_pkthdr(const struct pcap_pkthdr *header) {
-    char time_string[40];
+    char time_string[40] = {0};
     struct tm* broken_down_time = localtime(&header->ts.tv_sec);
-    strftime(time_string, sizeof (time_string), "%Y-%m-%d %H:%M:%S", broken_down_time);
+    strftime(time_string, sizeof (time_string), "%Y-%m-%dT%H:%M:%S", broken_down_time);
     long milliseconds = header->ts.tv_usec / 1000;
     sprintf(string_buffer, "%s.%03ld", time_string, milliseconds);
     str_append_string(&packet_storage.time_stamp, string_buffer);
+
+    char utc_time_zone[10] = {0};
+    strftime(utc_time_zone, sizeof(time_string), "%z", broken_down_time);
+
+    for (int i = 0; i < 5; i++) {
+        str_append_char(&packet_storage.time_stamp, utc_time_zone[i]);
+        if (i == 2) str_append_char(&packet_storage.time_stamp, ':');
+    }
 }
 
 void print_packet() {
