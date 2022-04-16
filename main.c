@@ -41,7 +41,7 @@ bool icmp_flag  = false;
 
 int return_code = 0;
 
-int port_n;
+char *port_n;
 bool port_n_is_set = false;
 int packet_n = 1;
 char interface_name[SMALL_BUFF_SIZE];
@@ -132,17 +132,6 @@ void print_interfaces() {
     }
 }
 
-void reinit_packet_storage_struct() {
-    str_free(&packet_storage.time_stamp);
-    str_free(&packet_storage.protocol);
-    str_free(&packet_storage.mac_src);
-    str_free(&packet_storage.mac_dst);
-    str_free(&packet_storage.ip_src);
-    str_free(&packet_storage.ip_dst);
-    str_free(&packet_storage.port_src);
-    str_free(&packet_storage.port_dst);
-    packet_storage.frame_length = 0;
-}
 
 void init_packet_storage_struct() {
     str_create_empty(&packet_storage.time_stamp);
@@ -157,8 +146,22 @@ void init_packet_storage_struct() {
     str_create_empty(&packet_storage.frame_content);
     packet_storage.frame_length = 0;
     packet_storage.payload_size = 0;
-    packet_storage.dl_header_size = 0;
 }
+
+void reinit_packet_storage_struct() {
+    str_free(&packet_storage.time_stamp);
+    str_free(&packet_storage.protocol);
+    str_free(&packet_storage.mac_src);
+    str_free(&packet_storage.mac_dst);
+    str_free(&packet_storage.ip_src);
+    str_free(&packet_storage.ip_dst);
+    str_free(&packet_storage.port_src);
+    str_free(&packet_storage.port_dst);
+    str_create_empty(&packet_storage.eth_type);
+    str_create_empty(&packet_storage.frame_content);
+    init_packet_storage_struct();
+}
+
 
 // verifies integer value
 // return 0 on success, -1 otherwise
@@ -210,7 +213,7 @@ int process_arguments(int argc, char *argv[]) {
                 if (result < 0) {
                     return handle_error(ERR_PORT_N);
                 }
-                port_n = result;
+                port_n = argv[arg_pos + 1];
                 port_n_is_set = true;
                 arg_pos += 2;
             } else {
@@ -562,6 +565,9 @@ void get_time_from_pkthdr(const struct pcap_pkthdr *header) {
 
 void print_packet() {
     printf("*** NEW PACKET ***\n");
+    printf("timestamp:      %s\n", packet_storage.time_stamp.ptr);
+    printf("eth type:       %s\n", packet_storage.eth_type.ptr);
+    printf("protocol:       %s\n", packet_storage.protocol.ptr);
     printf("src MAC:        %s\n", packet_storage.mac_src.ptr);
     printf("dst MAC:        %s\n", packet_storage.mac_dst.ptr);
     printf("frame length:   %lu\n", packet_storage.frame_length);
@@ -571,9 +577,6 @@ void print_packet() {
     printf("dst port:       %s\n", packet_storage.port_dst.ptr);
     printf("payload size:   %lu\n", packet_storage.payload_size);
     printf("frame: \n%s", packet_storage.frame_content.ptr);
-
-
-    // TODO: print entire packet frame
     printf("*** END OF PACKET ***\n\n\n");
 }
 
@@ -585,6 +588,11 @@ void check_and_print_packet() {
     if (!strcmp(protocol->ptr, "UDP") && udp_flag) passed = true;
     if (!strcmp(protocol->ptr, "ARP") && arp_flag) passed = true;
     if (!strcmp(protocol->ptr, "ICMP") && icmp_flag) passed = true;
+    if (port_n_is_set) {
+        if (strcmp(packet_storage.port_dst.ptr, port_n) != 0 && strcmp(packet_storage.port_src.ptr, port_n) != 0) {
+            passed = false;
+        }
+    }
 
     // packet did not pass
     if (!passed) {
@@ -630,6 +638,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
     }
 
     check_and_print_packet();
+    reinit_packet_storage_struct();
 }
 
 int main(int argc, char *argv[]) {
