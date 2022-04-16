@@ -66,6 +66,7 @@ typedef struct packet_t{
     string_t        icmp_type;
     string_t        arp_hw_type;
     string_t        arp_protocol_type;
+    string_t        arp_operation;
 } packet_t;
 
 struct packet_t packet_storage;
@@ -149,6 +150,7 @@ void init_packet_storage_struct() {
     str_create_empty(&packet_storage.icmp_type);
     str_create_empty(&packet_storage.arp_hw_type);
     str_create_empty(&packet_storage.arp_protocol_type);
+    str_create_empty(&packet_storage.arp_operation);
     packet_storage.frame_length = packet_storage.dl_header_size;
     packet_storage.payload_size = 0;
 }
@@ -167,6 +169,7 @@ void reinit_packet_storage_struct() {
     str_free(&packet_storage.icmp_type);
     str_free(&packet_storage.arp_hw_type);
     str_free(&packet_storage.arp_protocol_type);
+    str_free(&packet_storage.arp_operation);
     init_packet_storage_struct();
 }
 
@@ -491,20 +494,32 @@ int print_arp_packet(const u_char *packet) {
     unsigned short protocol_address_length = arp_header->ar_pln;
     unsigned short int arp_operation = ntohs(arp_header->ar_op);
 
+    const int arp_header_length = 8;
+    packet_storage.frame_length += arp_header_length;
+    packet_storage.frame_length += 2 * hardware_address_length;
+    packet_storage.frame_length += 2 * protocol_address_length;
+
+    if (arp_operation == 1) {
+        str_append_string(&packet_storage.arp_operation, "request(1)");
+    } else if (arp_operation == 2) {
+        str_append_string(&packet_storage.arp_operation, "reply(2)");
+    }
+
+    str_append_string(&packet_storage.ip_src,
+                            inet_ntoa(*(struct in_addr *)(packet + packet_storage.dl_header_size +
+                               arp_header_length + hardware_address_length)));
+    str_append_string(&packet_storage.ip_dst,
+                            inet_ntoa(*(struct in_addr *)(packet + packet_storage.dl_header_size +
+                               arp_header_length + hardware_address_length * 2 + protocol_address_length)));
+
     // Ethernet (1)
     if (hardware_address_format == 1) {
         str_append_string(&packet_storage.arp_hw_type, "Ethernet(1)");
-        packet_storage.frame_length += 2 * 4;
         if (protocol_address_format == 2048) {
             str_append_string(&packet_storage.arp_protocol_type, "IPv4");
-
-            packet_storage.frame_length += 2 * hardware_address_length;
-            packet_storage.frame_length += 2 * protocol_address_length;
             get_frame_content(packet);
         }
     }
-
-
 }
 
 int print_ipv4_packet(const u_char *packet) {
@@ -600,17 +615,16 @@ void print_packet() {
     printf("eth type:       %s\n", packet_storage.eth_type.ptr);
     if (!strcmp(packet_storage.eth_type.ptr, "ARP")) {
         printf("arp protocol:   %s\n", packet_storage.arp_protocol_type.ptr);
+        printf("arp operation:  %s\n", packet_storage.arp_operation.ptr);
     } else {
         printf("protocol:       %s\n", packet_storage.protocol.ptr);
     }
     printf("src MAC:        %s\n", packet_storage.mac_src.ptr);
     printf("dst MAC:        %s\n", packet_storage.mac_dst.ptr);
     printf("frame length:   %lu\n", packet_storage.frame_length);
-    if (!strcmp(packet_storage.protocol.ptr, "TCP") || !strcmp(packet_storage.protocol.ptr, "UDP")
-        || !strcmp(packet_storage.protocol.ptr, "ICMP")) {
-        printf("src IP:         %s\n", packet_storage.ip_src.ptr);
-        printf("dst IP:         %s\n", packet_storage.ip_dst.ptr);
-    }
+    printf("src IP:         %s\n", packet_storage.ip_src.ptr);
+    printf("dst IP:         %s\n", packet_storage.ip_dst.ptr);
+
     if (!strcmp(packet_storage.protocol.ptr, "TCP") || !strcmp(packet_storage.protocol.ptr, "UDP")) {
         printf("src port:       %s\n", packet_storage.port_src.ptr);
         printf("dst port:       %s\n", packet_storage.port_dst.ptr);
