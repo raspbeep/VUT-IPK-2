@@ -1,5 +1,3 @@
 ./cmake-build-debug/
 FindPCAP.cmake
 log.txt
-menis.c
-menis
