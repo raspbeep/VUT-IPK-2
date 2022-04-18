@@ -1,51 +1,29 @@
-# Simple HTTP server    
+# ipk-sniffer    
 
-HTTP server written in C. Serves on a given port and returns: cpu name, hostname, current cpu load.
+A packet sniffer and analysis tool written in C.
 
 ## Compilation
 
 ```
-$ make
+$ make all
 ```
-
-## Deployment
-
-```
-$ ./hinfosvc [PORT]
-```
-
 ## Usage
+Basic usage with no further filtering:
+```
+$ ./ipk-sniffer -i network-interface-name
+```
 
-#### Get current CPU usage in %. Calculated from two readings(1 second apart) of cpu information from `/proc/stat`.
+Show first 10 captured IPv4 TCP packets:
 ```
-$ curl localhost:PORT/load
+$ ./ipk-sniffer -i network-interface-name -n 10 --tcp --ipv4
 ```
-#### Example output
-``
-42%
-``
 
-#### Get hostname of server machine from `/etc/hostname`.
+In case you are not sure which network interface are present in your system:
+`--help` flag will show you all available interfaces and hint for all filtering flags.
 ```
-$ curl localhost:PORT/hostname
+$ ./ipk-sniffer --help
 ```
-#### Example output
-``
-fedora
-``
-
-#### Get CPU name and base frequency from `/proc/cpuinfo`.
-```
-$ curl localhost:PORT/cpu-name
-```
-#### Example output
-``
-Intel(R) Core(TM) i7-10610U CPU @ 1.80GHz
-``
-
 ## Contact
-
 Pavel Kratochvil - xkrato61@vutbr.cz
 
-Project Link: [https://github.com/raspbeep/VUT-IPK-1](https://github.com/raspbeep/VUT-IPK-1)
-
+Project Link: [https://github.com/raspbeep/VUT-IPK-2](https://github.com/raspbeep/VUT-IPK-2)

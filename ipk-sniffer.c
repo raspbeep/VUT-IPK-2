@@ -1,7 +1,7 @@
 /**
  * ipk-sniffer
  *
- * Copyright 2021 xkrato61 Pavel Kratochvil
+ * Copyright 2022 xkrato61 Pavel Kratochvil
  *
  * @file ipk-sniffer.c
  *
@@ -138,7 +138,9 @@ void print_help() {
                     "   --udp|-u       - filter by UDP protocol\n"
                     "   --arp          - filter by ARP protocol\n"
                     "   --icmp         - filter by ICMP protocol (both IPv4 and IPv6)\n"
-                    "   -n             - number of packets to print\n\n");
+                    "   -ipv4/-ipv6    - filter by IP version number\n"
+                    "   -n             - number of packets to print\n\n"
+                    );
 }
 
 // prints all available network interfaces
@@ -157,7 +159,7 @@ void print_interfaces() {
     }
 }
 
-// creates empty string_t fields in global variable package struct
+// creates empty string_t fields in global package_storage struct
 void init_packet_storage_struct() {
     str_create_empty(&packet_storage.time_stamp);
     str_create_empty(&packet_storage.protocol);
@@ -179,7 +181,7 @@ void init_packet_storage_struct() {
     packet_storage.payload_size = 0;
 }
 
-// frees string_t fields in package storage struct variable and creates empty ones
+// frees string_t fields in package_storage struct variable and creates empty ones
 void reinit_packet_storage_struct() {
     str_free(&packet_storage.time_stamp);
     str_free(&packet_storage.protocol);
@@ -577,6 +579,7 @@ int ipv4_packet(const u_char *packet) {
 
     // now the length value is final for current packet
     packet_storage.frame_length += ip_total_length;
+
     str_append_string(&packet_storage.ip_src, inet_ntoa(*(struct in_addr *)&ip_header->saddr));
     str_append_string(&packet_storage.ip_dst, inet_ntoa(*(struct in_addr *)&ip_header->daddr));
 
@@ -611,7 +614,7 @@ void ipv6_icmp_packet(const u_char *packet) {
             sprintf(string_buffer, "(129) Echo reply.");
             break;
         case ICMP6_DST_UNREACH:
-            sprintf(string_buffer, "(1) Destination unreached.");
+            sprintf(string_buffer, "(1) Destination unreachable.");
             break;
         case ICMP6_PACKET_TOO_BIG:
             sprintf(string_buffer, "(2) Packet too big.");
@@ -722,7 +725,6 @@ void get_time_from_pkthdr(const struct pcap_pkthdr *header) {
 
 // prints desired packet information from packet storage
 void print_packet() {
-    printf("*** NEW PACKET ***\n");
     printf("timestamp:      %s\n", packet_storage.time_stamp.ptr);
     printf("eth type:       %s\n", packet_storage.eth_type.ptr);
     if (!strcmp(packet_storage.eth_type.ptr, "ARP")) {
@@ -747,14 +749,11 @@ void print_packet() {
         printf("dst port:       %s\n", packet_storage.port_dst.ptr);
         printf("payload size:   %lu\n", packet_storage.payload_size);
     }
-    if (!strcmp(packet_storage.protocol.ptr, "TCP") || !strcmp(packet_storage.protocol.ptr, "UDP")
-        || !strcmp(packet_storage.eth_type.ptr, "ARP")) {
-        printf("\n%s", packet_storage.frame_content.ptr);
-    }
     if (!strcmp(packet_storage.protocol.ptr, "ICMP")){
         printf("ICMP type:      %s\n", packet_storage.icmp_type.ptr);
     }
-    printf("*** END OF PACKET ***\n\n");
+    printf("\n%s", packet_storage.frame_content.ptr);
+    printf("\n");
     fflush(stdout);
 }
 
@@ -766,7 +765,6 @@ void check_and_print_packet() {
     if (!strcmp(packet_storage.protocol.ptr, "UDP") && udp_flag) passed = true;
     if (!strcmp(packet_storage.eth_type.ptr, "ARP") && arp_flag) passed = true;
     if (!strcmp(packet_storage.protocol.ptr, "ICMP") && icmp_flag) passed = true;
-    // TODO: is it OK?
     if (strcmp(packet_storage.eth_type.ptr, "IPv6") != 0 && ipv6_flag) passed = false;
     if (strcmp(packet_storage.eth_type.ptr, "IPv4") != 0 && ipv4_flag) passed = false;
     if (port_n_is_set) {
@@ -838,7 +836,7 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, stop_capture);
     signal(SIGTERM, stop_capture);
 
-    printf("Starting...\n");
+    printf("Starting...\n\n");
 
     result = init_pcap_handle();
     if (result != 0) {

@@ -1,3 +1,12 @@
+/**
+ * ipk-sniffer
+ *
+ * Copyright 2022 xkrato61 Pavel Kratochvil
+ *
+ * @file errno.h
+ *
+ * @brief Error number header file
+ */
 
 #pragma once
 

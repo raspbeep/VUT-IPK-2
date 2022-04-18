@@ -1,9 +1,19 @@
+/**
+ * ipk-sniffer
+ *
+ * Copyright 2022 xkrato61 Pavel Kratochvil
+ *
+ * @file dynamic-string.c
+ *
+ * @brief Dynamic string implementation
+ */
+
 #include "dynamic_string.h"
 #include "errno.h"
-
 #include <stdlib.h>
 #include <string.h>
 
+// allocates pre-defined amount for space for empty string
 int str_create_empty(string_t *str) {
     // allocate initial space for string
     str->ptr = malloc(STRING_ALLOC_LENGTH);
@@ -11,24 +21,12 @@ int str_create_empty(string_t *str) {
         return E_INT;
     }
     str->ptr[0] = '\0';
-    str->length = 0;
     str->alloc_length = STRING_ALLOC_LENGTH;
+    str->length = 0;
     return E_OK;
 }
 
-int str_create(const char *s, string_t *str) {
-    // allocate space for string
-    size_t length = strlen(s);
-    str->ptr = malloc(length + 1);
-    if(str->ptr == NULL) {
-        return E_INT;
-    }
-    str->length = length;
-    str->alloc_length = length + 1;
-    strcpy(str->ptr, s);
-    return E_OK;
-}
-
+// appends entire string s(ending with \0) to string content
 int str_append_string(string_t *str, char *s) {
     for (int i = 0; i < strlen(s); i++) {
         if (str_append_char(str,s[i])) {
@@ -38,10 +36,10 @@ int str_append_string(string_t *str, char *s) {
     return E_OK;
 }
 
+// appends one character to string content
 int str_append_char(string_t *str, char ch) {
     // new_char + null byte = 2
     if(str->length + 2 > str->alloc_length) {
-
         /* allocate buffer twice as large
          * note: str->alloc_length can't be equal to 0 unless STRING_ALLOC_LENGTH is set to 0 or an
          * overflow happened
@@ -58,6 +56,7 @@ int str_append_char(string_t *str, char ch) {
     return E_OK;
 }
 
+// free allocated space for string content
 void str_free(string_t *str) {
     if(str->ptr) {
         free(str->ptr);

@@ -72,8 +72,8 @@ build edit_cache: phony CMakeFiles/edit_cache.util
 
 build cmake_object_order_depends_target_ipk2: phony || CMakeFiles/ipk2.dir
 
-build CMakeFiles/ipk2.dir/main.c.o: C_COMPILER__ipk2_Debug /home/pavel/CLionProjects/ipk2/main.c || cmake_object_order_depends_target_ipk2
-  DEP_FILE = CMakeFiles/ipk2.dir/main.c.o.d
+build CMakeFiles/ipk2.dir/ipk-sniffer.c.o: C_COMPILER__ipk2_Debug /home/pavel/CLionProjects/ipk2/ipk-sniffer.c || cmake_object_order_depends_target_ipk2
+  DEP_FILE = CMakeFiles/ipk2.dir/ipk-sniffer.c.o.d
   FLAGS = -g -std=gnu99
   OBJECT_DIR = CMakeFiles/ipk2.dir
   OBJECT_FILE_DIR = CMakeFiles/ipk2.dir
@@ -92,7 +92,7 @@ build CMakeFiles/ipk2.dir/dynamic_string.c.o: C_COMPILER__ipk2_Debug /home/pavel
 #############################################
 # Link the executable ipk2
 
-build ipk2: C_EXECUTABLE_LINKER__ipk2_Debug CMakeFiles/ipk2.dir/main.c.o CMakeFiles/ipk2.dir/dynamic_string.c.o | /usr/local/bin/lib/libpcap.so
+build ipk2: C_EXECUTABLE_LINKER__ipk2_Debug CMakeFiles/ipk2.dir/ipk-sniffer.c.o CMakeFiles/ipk2.dir/dynamic_string.c.o | /usr/local/bin/lib/libpcap.so
   FLAGS = -g
   LINK_LIBRARIES = -Wl,-rpath,/usr/local/bin/lib  /usr/local/bin/lib/libpcap.so
   OBJECT_DIR = CMakeFiles/ipk2.dir
