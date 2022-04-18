@@ -12,7 +12,6 @@
 
 #define E_OK 0
 #define E_INT (-69)
-
 #define ERROR (-1)
 #define ERR_PORT_N 21
 #define ERR_PACKET_N 22

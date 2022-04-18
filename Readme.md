@@ -8,6 +8,8 @@ A packet sniffer and analysis tool written in C.
 $ make all
 ```
 ## Usage
+####Program requires running under superuser privileges, use `sudo` if prompted to.
+
 Basic usage with no further filtering:
 ```
 $ ./ipk-sniffer -i network-interface-name

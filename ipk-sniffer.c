@@ -138,7 +138,7 @@ void print_help() {
                     "   --udp|-u       - filter by UDP protocol\n"
                     "   --arp          - filter by ARP protocol\n"
                     "   --icmp         - filter by ICMP protocol (both IPv4 and IPv6)\n"
-                    "   -ipv4/-ipv6    - filter by IP version number\n"
+                    "   --ipv4/--ipv6  - filter by IP version number\n"
                     "   -n             - number of packets to print\n\n"
                     );
 }
