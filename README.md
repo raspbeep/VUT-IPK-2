@@ -1,6 +1,7 @@
 # ipk-sniffer    
 
-BODY: 19.5/20
+BODY: 19.5/20 (zle citacie)
+
 A packet sniffer and analysis tool written in C.
 
 ## Compilation
