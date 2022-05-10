@@ -8,7 +8,7 @@ A packet sniffer and analysis tool written in C.
 $ make all
 ```
 ## Usage
-####Program requires running under superuser privileges, use `sudo` if prompted to.
+Program requires running under superuser privileges, use `sudo` if prompted to.
 
 Basic usage with no further filtering:
 ```
